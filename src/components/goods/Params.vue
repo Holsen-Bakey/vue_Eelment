@@ -34,7 +34,20 @@
           <el-table :data="manyTableData" border stripe>
             <!-- 展开行 -->
             <el-table-column type="expand">
-
+              <!-- 属性 tag -->
+              <template slot-scope="scope">
+                <!-- 循环渲染Tag标签 -->
+                <el-tag v-for="(item,i) in scope.row.attr_vals" :key="i" closable @close="handleClose(i,scope.row)">
+                  {{item}}</el-tag>
+                <!-- 输入的文本框 -->
+                <el-input class="input-new-tag" v-if="scope.row.inputVisible" v-model="scope.row.inputValue"
+                  ref="saveTagInput" size="small" @keyup.enter.native="handleInputConfirm(scope.row)"
+                  @blur="handleInputConfirm(scope.row)">
+                </el-input>
+                <!-- 添加Tag的按钮 -->
+                <el-button v-else class="button-new-tag" size="small" @click="showInput(scope.row)">+ New Tag
+                </el-button>
+              </template>
             </el-table-column>
             <!-- 索引列 -->
             <el-table-column type="inedx"></el-table-column>
@@ -42,7 +55,8 @@
             <el-table-column label="操作">
               <template slot-scope="scope">
                 <el-button size="mini" type="primary" icon="el-icon-edit" @click="showEditDialog">编辑</el-button>
-                <el-button size="mini" type="danger" icon="el-icon-delete">删除</el-button>
+                <el-button size="mini" type="danger" icon="el-icon-delete" @click="removeParams(scope.row.attr_id)">删除
+                </el-button>
               </template>
             </el-table-column>
 
@@ -65,7 +79,8 @@
             <el-table-column label="操作">
               <template slot-scope="scope">
                 <el-button size="mini" type="primary" icon="el-icon-edit" @click="showEditDialog">编辑</el-button>
-                <el-button size="mini" type="danger" icon="el-icon-delete">删除</el-button>
+                <el-button size="mini" type="danger" icon="el-icon-delete" @click="removeParams(scope.row.attr_id)">删除
+                </el-button>
               </template>
             </el-table-column>
 
@@ -148,6 +163,11 @@
             trigger: 'blur'
           }]
         },
+        // 更新元数据，是用自带属性做切换
+        // //控制tag按钮与文本框的切换显示
+        // inputVisible: false,
+        // //Tag 文本框中输入的内容
+        // inputValue: '',
 
 
       }
@@ -177,6 +197,9 @@
         // 证明选中的不是三级分类
         if (this.selectedCateKeys.length !== 3) {
           this.selectedCateKeys = []
+          //下边table的数据也要清空
+          this.manyTableData = []
+          this.onlyTableData = []
           return
         }
 
@@ -195,6 +218,22 @@
           return this.$message.error('获取参数列表失败！')
         }
         console.log(res.data)
+        //循环返回参数的tag内容,将res.data中的attr_vals属性的字符串遍历为数组形式
+        res.data.forEach(item => {
+          //将item.attr_vals字符串分割，返回数组形式赋值给item.attr_vals
+          // item.attr_vals = item.attr_vals.split(' ')
+          // 添加判空
+          item.attr_vals = item.attr_vals ? item.attr_vals.split(' ') : []
+          //更新，所有的tag共用一个inputVisible，导致点击一个所有的tag都显示
+          //给tag源数据添加属性,每个 tag 使用自己的属性值
+          //控制文本框的显示与隐藏
+          item.inputVisible = false
+          //文本框中输入的值
+          item.inputValue = ''
+
+        })
+
+
         if (this.activeName === 'many') {
           this.manyTableData = res.data
         } else {
@@ -214,7 +253,7 @@
       },
       //点击确认按钮，添加参数
       addParams() {
-        this.$refs.addFormRef.validate(valid => {
+        this.$refs.addFormRef.validate(async valid => {
           if (!valid) return
           const {
             data: res
@@ -233,17 +272,133 @@
         })
       },
       // 点击按钮，展示修改的对话框
-      showEditDialog() {
+      async showEditDialog(attr_id) {
+        //查询当前的参数信息,并添加到dialog
+        const {
+          data: res
+        } = await this.$http.get(`categories/${this.cateId}/attributes/${attr_id}`, {
+          params: {
+            attr_sel: this.activeName
+          }
+        })
 
+        if (res.meta.status !== 201) {
+          return this.$message.error('添加参数失败')
+        }
+        this.$message.success('添加参数成功')
+        this.editForm = res.data
+        this.editDialogVisible = true
       },
       //重置修改表单
       editDialogClosed() {
         this.$refs.addFormRef.resetFields()
       },
-      //
+      // 点击确定按钮，修改参数信息
       editParams() {
+        this.$refs.editFormRef.validate(async valid => {
+          if (!valid) return
+          const {
+            data: res
+          } =
+          await this.$http.put(`categories/${this.cateId}/attributes/${this.editForm.attr_id}`, {
+            attr_name: this.editForm.attr_name,
+            attr_ael: this.activeName
+          })
 
+          if (res.meta.status !== 201) {
+            return this.$message.error('添加参数失败')
+          }
+          this.$message.success('添加参数成功')
+          this.addDialogVisible = false
+          this.getParamsData()
+        })
+      },
+
+      //根据Id删除对应的参数项
+      async removeParams(attr_id) {
+        const confirmResult = await this.$confirm('此操作将永久删除该参数，是否继续？', '提示', {
+          confirmButtonText: 'sure',
+          cancelButtonText: 'cancel',
+          type: 'warning'
+        }).catch(err => err)
+
+        //用户取消了删除操作
+        if (confirmResult !== 'confirm') {
+          return this.$message.info('用户取消了删除操作')
+        }
+
+        //删除的业务逻辑
+        const {
+          data: res
+        } = this.$http.delete(`categories/${this.cateId}/attributes/${attr_id}`)
+        if (res.meta.status !== 201) {
+          return this.$message.error('添加参数失败')
+        }
+
+        this.$message.success('删除参数成功！')
+        this.getParamsData()
+      },
+      //Tag文本框失去其焦点或按下 Enter 都会触发
+      handleInputConfirm(row) {
+        // row.inputVisible = false
+        //判断输入内容
+        if (row.inputValue.trim().length === 0) {
+          row.inputValue = ''
+          row.inputVisible = false
+          return
+        }
+        //如果没有 return，则证明输入的内容合法，需要做后续处理
+        row.attr_vals.push(row.inputValue.trim())
+        row.inputValue = ''
+        row.inputVisible = false
+        this.saveAttrVals(row)
+        // //需要发起请求，保存这次操作
+        // const {
+        //   data: res
+        // } = this.$http.delete(`categories/${this.cateId}/attributes/${row.attr_id}`, {
+        //   attr_name: row.attr_name,
+        //   attr_sel: row.attr_sel,
+        //   attr_vals: row.attr_vals.join(' ')
+        // })
+        // if (res.meta.status !== 201) {
+        //   return this.$message.error('添加参数失败')
+        // }
+
+        // this.$message.success('删除参数成功！')
+      },
+      //点击按钮，展示文本输入框
+      showInput(row) {
+        // this.inputVisible = true
+        row.inputVisible = true
+        //让文本框自动获取焦点
+        // $nextTick 方法的作用，就是当页面上的元素被重新渲染后，才能指定回调函数中的代码
+        this.$nextTick(_ => {
+          this.$refs.saveTagInput.$refs.input.focus();
+        });
+      },
+      //抽离出来的网络请求,将对attr_vals的操作，保存到数据库
+      async saveAttrVals(row) {
+        // 需要发起请求， 保存这次操作
+        const {
+          data: res
+        } = this.$http.delete(`categories/${this.cateId}/attributes/${row.attr_id}`, {
+          attr_name: row.attr_name,
+          attr_sel: row.attr_sel,
+          attr_vals: row.attr_vals.join(' ')
+        })
+        if (res.meta.status !== 201) {
+          return this.$message.error('添加参数失败')
+        }
+
+        this.$message.success('删除参数成功！')
+      },
+
+      //点击删除Tag的事件
+      handleClose(i, row) {
+        row.attr_vals.splice(i, 1)
+        this.saveAttrVals(row)
       }
+
     },
     computed: {
       //如果按钮需要被禁用，则返回true，否则返回false
@@ -278,6 +433,14 @@
 <style lang="less" scoped>
   .cat_opt {
     margin: 15px 0;
+  }
+
+  .el-tag {
+    margin: 10px;
+  }
+
+  .input-new-tag {
+    width: 120px;
   }
 
 </style>
